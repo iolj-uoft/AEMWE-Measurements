@@ -1,4 +1,3 @@
-
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox, QInputDialog, QLineEdit, QFormLayout
 import pyvisa
 from plot_canvas import LivePlotCanvas
@@ -12,7 +11,8 @@ class MeasurementPage(QWidget):
         self.setWindowTitle("PyQt Power Supply Measurement")
         self.setGeometry(200, 200, 700, 600)
         self.worker = None
-
+        self.recorded_data = []
+        
         layout = QVBoxLayout()
 
         self.label = QLabel("Select VISA Device:")
@@ -25,12 +25,10 @@ class MeasurementPage(QWidget):
             self.combo.addItem("No VISA devices found")
         layout.addWidget(self.combo)
 
-
         # Parameter fields
         self.activation_time_input = QLineEdit("60")  # default values
         self.voltage_limit_input = QLineEdit("1.95")
         self.interval_time_input = QLineEdit("20")
-
 
         self.current_start_input = QLineEdit("0.0")
         self.current_step_input = QLineEdit("0.25")
@@ -52,9 +50,18 @@ class MeasurementPage(QWidget):
         self.stop_button.clicked.connect(self.stop_measurement)
         layout.addWidget(self.stop_button)
 
-
         self.canvas = LivePlotCanvas()
+        self.canvas.setMinimumHeight(450)
         layout.addWidget(self.canvas)
+        
+        # Add Export Plot button after the plot, before the log
+        self.export_plot_button = QPushButton("Export Plot")
+        self.export_plot_button.clicked.connect(self.export_plot)
+        layout.addWidget(self.export_plot_button)
+
+        self.save_data_button = QPushButton("Save Data")
+        self.save_data_button.clicked.connect(self.save_data)
+        layout.addWidget(self.save_data_button)
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
@@ -62,11 +69,46 @@ class MeasurementPage(QWidget):
 
         self.setLayout(layout)
 
+    def export_plot(self):
+        from PyQt5.QtWidgets import QFileDialog
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Plot As", "plot.png", "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)", options=options)
+        if file_path:
+            self.canvas.fig.savefig(file_path)
+            self.append_log(f"Plot exported to: {file_path}")
+
+    def save_data(self):
+        from PyQt5.QtWidgets import QFileDialog
+        import pandas as pd
+
+        if not self.recorded_data:
+            QMessageBox.warning(self, "No Data", "No voltage data to save.")
+            return
+
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Voltage Data As", "recorded_data.xlsx",
+            "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*)",
+            options=options
+        )
+
+        if file_path:
+            df = pd.DataFrame(self.recorded_data, columns=["Voltage (V)"])
+            try:
+                if file_path.endswith(".csv"):
+                    df.to_csv(file_path, index=False)
+                else:
+                    df.to_excel(file_path, index=False)
+                self.append_log(f"✅ Voltage data saved to: {file_path}")
+            except Exception as e:
+                self.append_log(f"❌ Failed to save data: {str(e)}")
+
     def append_log(self, text):
         self.log_output.append(text)
 
     def update_plot(self, x, y):
         self.canvas.update_plot(x, y)
+        self.recorded_data.append(y)
 
     def start_measurement(self):
         selected_resource = self.combo.currentText()
@@ -100,11 +142,17 @@ class MeasurementPage(QWidget):
             self.stop_button.setEnabled(False)
 
     def prompt_user_to_continue(self):
-        QInputDialog.getText(self, "Stabilization", "Press OK when voltage stabilizes.")
+        from PyQt5.QtWidgets import QMessageBox
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Stabilization")
+        msg.setText("Press OK when voltage stabilizes.")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.setIcon(QMessageBox.Information)
+        msg.exec_()
         if self.worker:
             self.worker._wait_for_user = False
 
     def on_measurement_finished(self):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        self.append_log("Measurement completed.")
+        self.append_log("Measurement ended.")

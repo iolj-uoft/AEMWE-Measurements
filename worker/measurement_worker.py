@@ -3,7 +3,7 @@ import pyvisa
 import time
 from datetime import date
 import pandas as pd
-
+import os
 
 class MeasurementWorker(QThread):
     log_signal = pyqtSignal(str)
@@ -71,9 +71,10 @@ class MeasurementWorker(QThread):
                 self.plot_signal.emit(current, measured_voltage)
 
             df = pd.DataFrame({'Current (A)': current_data, 'Voltage (V)': voltage_data})
+            output_path = os.path.abspath("output.xlsx")
             try:
-                df.to_excel("output.xlsx", index=False)
-                self.log_signal.emit("Data saved to output.xlsx")
+                df.to_excel(output_path, index=False)
+                self.log_signal.emit(f"Data saved to {output_path}")
             except PermissionError:
                 self.log_signal.emit("Error saving Excel. Please close it and retry.")
 
