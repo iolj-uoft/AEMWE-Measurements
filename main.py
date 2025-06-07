@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import QApplication
-from ui_main import MeasurementApp
 import sys
+from main_window import MainWindow
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = MeasurementApp()
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())

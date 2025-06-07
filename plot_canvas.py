@@ -20,4 +20,10 @@ class LivePlotCanvas(FigureCanvas):
         self.ax.set_xlabel("Current (A)")
         self.ax.set_ylabel("Voltage (V)")
         self.ax.plot(self.x_data, self.y_data, marker='o', linestyle='-')
+        if self.y_data:
+            y_min = min(self.y_data)
+            y_max = max(self.y_data)
+            y_range = y_max - y_min
+            # Add 10% padding above and below
+            self.ax.set_ylim(y_min - 0.1 * y_range, y_max + 0.1 * y_range if y_range > 0 else y_max + 0.2)
         self.draw()
