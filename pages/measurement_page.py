@@ -1,8 +1,10 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox, QInputDialog, QLineEdit, QFormLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox, QInputDialog, QLineEdit, QFormLayout, QFileDialog, QHBoxLayout, QMessageBox
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import Qt
 import pyvisa
-from plot_canvas import LivePlotCanvas
-import sys
 import os
+import pandas as pd
+from plot_canvas import LivePlotCanvas
 from worker.measurement_worker import MeasurementWorker
 
 class MeasurementPage(QWidget):
@@ -11,25 +13,14 @@ class MeasurementPage(QWidget):
         self.setWindowTitle("PyQt Power Supply Measurement")
         self.setGeometry(200, 200, 700, 600)
         self.worker = None
-        self.recorded_data = []
-        
+        self.voltage_data = []
+
         layout = QVBoxLayout()
 
-        self.label = QLabel("Select VISA Device:")
-        layout.addWidget(self.label)
-
-        self.combo = QComboBox()
-        try:
-            self.combo.addItems(pyvisa.ResourceManager().list_resources())
-        except Exception as e:
-            self.combo.addItem("No VISA devices found")
-        layout.addWidget(self.combo)
-
         # Parameter fields
-        self.activation_time_input = QLineEdit("60")  # default values
+        self.activation_time_input = QLineEdit("60")
         self.voltage_limit_input = QLineEdit("1.95")
         self.interval_time_input = QLineEdit("20")
-
         self.current_start_input = QLineEdit("0.0")
         self.current_step_input = QLineEdit("0.25")
 
@@ -39,13 +30,46 @@ class MeasurementPage(QWidget):
         form_layout.addRow("Interval Time (s):", self.interval_time_input)
         form_layout.addRow("Start Current (A):", self.current_start_input)
         form_layout.addRow("Current Step (A):", self.current_step_input)
-        layout.addLayout(form_layout)
+
+        # Horizontal layout: form on left, logo/author on right
+        form_and_logo_layout = QHBoxLayout()
+        form_and_logo_layout.addLayout(form_layout)
+
+        # Logo + author layout (right side)
+        logo_and_author_layout = QVBoxLayout()
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(os.path.join(os.path.dirname(__file__), "../assets/logo.png"))
+        logo_label.setPixmap(logo_pixmap.scaledToHeight(80, Qt.SmoothTransformation))
+        logo_label.setAlignment(Qt.AlignCenter)
+        logo_and_author_layout.addWidget(logo_label)
+
+        author_label = QLabel("Author: Yang-Chen Lin\nContact: yangchen.lin0524@gmail.com\nLicensed under MIT License\nCopyright (c) 2025")
+        author_label.setAlignment(Qt.AlignCenter)
+        logo_and_author_layout.addWidget(author_label)
+        logo_and_author_layout.addStretch()
+
+        form_and_logo_layout.addLayout(logo_and_author_layout)
+        layout.addLayout(form_and_logo_layout)
 
         self.start_button = QPushButton("Start Measurement")
         self.start_button.clicked.connect(self.start_measurement)
         layout.addWidget(self.start_button)
 
         self.stop_button = QPushButton("Stop")
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f28b82;
+                border: 1px solid #d14836;
+                color: black;
+                font-weight: bold;
+            }
+            QPushButton:disabled {
+                background-color: #f2f2f2;
+                color: gray;
+                border: 1px solid #ccc;
+            }
+        """)
+
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop_measurement)
         layout.addWidget(self.stop_button)
@@ -53,8 +77,7 @@ class MeasurementPage(QWidget):
         self.canvas = LivePlotCanvas()
         self.canvas.setMinimumHeight(450)
         layout.addWidget(self.canvas)
-        
-        # Add Export Plot button after the plot, before the log
+
         self.export_plot_button = QPushButton("Export Plot")
         self.export_plot_button.clicked.connect(self.export_plot)
         layout.addWidget(self.export_plot_button)
@@ -70,7 +93,6 @@ class MeasurementPage(QWidget):
         self.setLayout(layout)
 
     def export_plot(self):
-        from PyQt5.QtWidgets import QFileDialog
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(self, "Export Plot As", "plot.png", "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)", options=options)
         if file_path:
@@ -78,22 +100,15 @@ class MeasurementPage(QWidget):
             self.append_log(f"Plot exported to: {file_path}")
 
     def save_data(self):
-        from PyQt5.QtWidgets import QFileDialog
-        import pandas as pd
-
-        if not self.recorded_data:
+        if not self.voltage_data:
             QMessageBox.warning(self, "No Data", "No voltage data to save.")
             return
 
         options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Voltage Data As", "recorded_data.xlsx",
-            "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*)",
-            options=options
-        )
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Voltage Data As", "voltage_data.xlsx", "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*)", options=options)
 
         if file_path:
-            df = pd.DataFrame(self.recorded_data, columns=["Voltage (V)"])
+            df = pd.DataFrame(self.voltage_data, columns=["Voltage (V)"])
             try:
                 if file_path.endswith(".csv"):
                     df.to_csv(file_path, index=False)
@@ -108,10 +123,15 @@ class MeasurementPage(QWidget):
 
     def update_plot(self, x, y):
         self.canvas.update_plot(x, y)
-        self.recorded_data.append(y)
+        self.voltage_data.append([y])
 
     def start_measurement(self):
-        selected_resource = self.combo.currentText()
+        # Get selected device from parent MainWindow
+        main_window = self.window()
+        if hasattr(main_window, 'get_selected_device'):
+            selected_resource = main_window.get_selected_device()
+        else:
+            selected_resource = None
         if not selected_resource or "No VISA devices found" in selected_resource:
             QMessageBox.warning(self, "Warning", "Please select a VISA device.")
             return
@@ -121,13 +141,14 @@ class MeasurementPage(QWidget):
         self.canvas.x_data.clear()
         self.canvas.y_data.clear()
         self.canvas.ax.clear()
+        self.voltage_data.clear()
 
         activation_time = float(self.activation_time_input.text())
         voltage_limit = float(self.voltage_limit_input.text())
         interval_time = float(self.interval_time_input.text())
         current_start = float(self.current_start_input.text())
         current_step = float(self.current_step_input.text())
-        
+
         self.worker = MeasurementWorker(selected_resource, activation_time, voltage_limit, interval_time, current_start, current_step)
         self.worker.request_user_input.connect(self.prompt_user_to_continue)
         self.worker.log_signal.connect(self.append_log)
@@ -142,7 +163,6 @@ class MeasurementPage(QWidget):
             self.stop_button.setEnabled(False)
 
     def prompt_user_to_continue(self):
-        from PyQt5.QtWidgets import QMessageBox
         msg = QMessageBox(self)
         msg.setWindowTitle("Stabilization")
         msg.setText("Press OK when voltage stabilizes.")
@@ -155,4 +175,4 @@ class MeasurementPage(QWidget):
     def on_measurement_finished(self):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        self.append_log("Measurement ended.")
+        self.append_log("Measurement completed.")
