@@ -21,11 +21,19 @@ class MainWindow(QWidget):
         self.device_label = device_label
         self.device_combo = device_combo
 
-        # Output folder selection
-        self.output_folder = os.getcwd()
-        self.output_folder_label = QLabel(f"Output Folder: {self.output_folder}")
-        self.select_folder_btn = QPushButton("Select Output Folder")
-        self.select_folder_btn.clicked.connect(self.select_output_folder)
+
+        # User name input and display (replaces output folder selection)
+        from PyQt5.QtWidgets import QLineEdit, QPushButton, QLabel
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText("(Optional) Enter your name")
+        self.username_input.setToolTip("Your name will be recorded with the measurement if provided")
+        self.username_input.setMaximumWidth(140)
+        self.username_btn = QPushButton("Set User")
+        self.username_btn.clicked.connect(self.set_username)
+        from PyQt5.QtCore import Qt
+        self.username_display = QLabel("Current User: (none)")
+        self.username_display.setAlignment(Qt.AlignCenter)
+        self.username_display.setStyleSheet("color: #222; font-size: 15pt; font-weight: bold;")
 
         self.stack = QStackedWidget()
         self.measurement_page = MeasurementPage()
@@ -51,15 +59,17 @@ class MainWindow(QWidget):
         nav_layout.addWidget(self.stability_btn)
         nav_layout.addStretch()
 
-        # Top layout for device selection and output folder
+        # Top layout for device selection and user name
         top_layout = QHBoxLayout()
         top_layout.addWidget(self.device_label)
         top_layout.addWidget(self.device_combo)
         top_layout.addSpacing(30)
-        top_layout.addWidget(self.output_folder_label)
-        top_layout.addWidget(self.select_folder_btn)
+        top_layout.addWidget(self.username_input)
+        top_layout.addWidget(self.username_btn)
+        top_layout.addWidget(self.username_display)
         top_layout.addStretch()
 
+        # Navigation and main content layout
         main_layout = QVBoxLayout()
         main_layout.addLayout(top_layout)
         content_layout = QHBoxLayout()
@@ -67,16 +77,18 @@ class MainWindow(QWidget):
         content_layout.addWidget(self.stack)
         main_layout.addLayout(content_layout)
         self.setLayout(main_layout)
+    def set_username(self):
+        name = self.username_input.text().strip()
+        if name:
+            self.username_display.setText(f"Current User: {name}")
+            self.username_input.hide()
+            self.username_btn.hide()
+        else:
+            self.username_display.setText("Current User: (none)")
+            self.username_input.show()
+            self.username_btn.show()
 
     def get_selected_device(self):
         return self.device_combo.currentText()
 
-    def get_output_folder(self):
-        return self.output_folder
-
-    def select_output_folder(self):
-        from PyQt5.QtWidgets import QFileDialog
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_folder)
-        if folder:
-            self.output_folder = folder
-            self.output_folder_label.setText(f"Output Folder: {self.output_folder}")
+    # Output folder selection removed; user name is now used instead

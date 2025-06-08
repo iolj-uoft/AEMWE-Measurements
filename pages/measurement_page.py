@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox, QInputDialog, QLineEdit, QFormLayout, QFileDialog, QHBoxLayout, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QTextEdit, QMessageBox, QInputDialog, QLineEdit, QFormLayout, QFileDialog, QHBoxLayout
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 import pyvisa
@@ -21,15 +21,35 @@ class MeasurementPage(QWidget):
         self.activation_time_input = QLineEdit("60")
         self.voltage_limit_input = QLineEdit("1.95")
         self.interval_time_input = QLineEdit("20")
-        self.current_start_input = QLineEdit("0.0")
-        self.current_step_input = QLineEdit("0.25")
+
+        self.current_list_input = QLineEdit("")
+        self.import_current_btn = QPushButton("Import")
+        self.import_current_btn.setToolTip("Import current list from CSV or text file")
+        self.import_current_btn.clicked.connect(self.import_current_list)
+
+        # Horizontal layout for current list input and import button
+        current_list_hbox = QHBoxLayout()
+        current_list_hbox.addWidget(self.current_list_input)
+        current_list_hbox.addWidget(self.import_current_btn)
+
+        # Label to display parsed current list below the input
+        from PyQt5.QtWidgets import QScrollArea
+        self.current_list_display = QLabel()
+        self.current_list_display.setWordWrap(True)
+        self.current_list_display.setStyleSheet("color: #333; font-size: 11pt; background: #f7f7f7; border: 1px solid #ddd; padding: 4px;")
+        self.current_list_display.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # Put the label in a scroll area
+        self.current_list_scroll = QScrollArea()
+        self.current_list_scroll.setWidgetResizable(True)
+        self.current_list_scroll.setWidget(self.current_list_display)
+        self.current_list_scroll.setFixedHeight(70)
 
         form_layout = QFormLayout()
         form_layout.addRow("Activation Time (s):", self.activation_time_input)
         form_layout.addRow("Voltage Limit (V):", self.voltage_limit_input)
         form_layout.addRow("Interval Time (s):", self.interval_time_input)
-        form_layout.addRow("Start Current (A):", self.current_start_input)
-        form_layout.addRow("Current Step (A):", self.current_step_input)
+        form_layout.addRow("Current List (comma/space separated or import):", current_list_hbox)
+        form_layout.addRow("Current List (A):", self.current_list_scroll)
 
         # Horizontal layout: form on left, logo/author on right
         form_and_logo_layout = QHBoxLayout()
@@ -46,6 +66,7 @@ class MeasurementPage(QWidget):
         author_label = QLabel("Author: Yang-Chen Lin\nContact: yangchen.lin0524@gmail.com\nLicensed under MIT License\nCopyright (c) 2025")
         author_label.setAlignment(Qt.AlignCenter)
         logo_and_author_layout.addWidget(author_label)
+
         logo_and_author_layout.addStretch()
 
         form_and_logo_layout.addLayout(logo_and_author_layout)
@@ -69,7 +90,6 @@ class MeasurementPage(QWidget):
                 border: 1px solid #ccc;
             }
         """)
-
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop_measurement)
         layout.addWidget(self.stop_button)
@@ -91,6 +111,92 @@ class MeasurementPage(QWidget):
         layout.addWidget(self.log_output)
 
         self.setLayout(layout)
+
+    def set_username(self):
+        name = self.username_input.text().strip()
+        if name:
+            self.username_display.setText(f"Current User: {name}")
+            self.username_input.hide()
+            self.username_btn.hide()
+        else:
+            self.username_display.setText("Current User: (none)")
+
+
+    def import_current_list(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Current List",
+            "",
+            "CSV Files (*.csv);;Text Files (*.txt);;All Files (*)"
+        )
+        if not file_path:
+            return
+        try:
+            import csv
+            numbers = []
+            with open(file_path, 'r') as f:
+                # Try CSV reader first for robust parsing
+                try:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        for item in row:
+                            for val in str(item).replace(',', ' ').split():
+                                if val.strip():
+                                    numbers.append(val.strip())
+                except Exception:
+                    f.seek(0)
+                    content = f.read()
+                    content = content.replace('\n', ' ').replace(',', ' ')
+                    numbers = [s for s in content.split() if s.strip()]
+            floats = []
+            for s in numbers:
+                try:
+                    floats.append(str(float(s)))
+                except Exception:
+                    continue
+            if not floats:
+                QMessageBox.warning(self, "Import Error", "No valid numbers found in file.")
+                return
+            self.current_list_input.setText(' '.join(floats))
+            self.update_current_list_display()
+            self.append_log(f"✅ Imported {len(floats)} current values from file.")
+        except Exception as e:
+            QMessageBox.warning(self, "Import Error", f"Failed to import current list: {str(e)}")
+            self.append_log(f"❌ Failed to import current list: {str(e)}")
+
+    def update_current_list_display(self):
+        current_list_str = self.current_list_input.text().strip()
+        # Show default list if no custom list, otherwise show only custom list
+        try:
+            default_list = [round(0 + i * 0.25, 8) for i in range(int((40 - 0) / 0.25) + 1)]
+            default_str = ', '.join(f"{v:g}" for v in default_list)
+            default_html = f"<b>Default:</b> {default_str}"
+        except Exception:
+            default_html = "<i>No default list available.</i>"
+
+        if not current_list_str:
+            self.current_list_display.setText(default_html)
+            return
+        try:
+            # Accept comma, space, or newline separated
+            current_list_str = current_list_str.replace('\n', ' ').replace(',', ' ')
+            floats = [float(s) for s in current_list_str.split() if s.strip()]
+            if not floats:
+                self.current_list_display.setText("<i>No valid numbers in custom list.</i>")
+            else:
+                display_str = ', '.join(f"{v:g}" for v in floats)
+                self.current_list_display.setText(display_str)
+        except Exception:
+            self.current_list_display.setText("<i>Invalid custom list input.</i>")
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.update_current_list_display()
+
+    def on_current_list_input_changed(self):
+        self.update_current_list_display()
+
+        # Connect current list input changes to update display
+        self.current_list_input.textChanged.connect(self.on_current_list_input_changed)
 
     def export_plot(self):
         options = QFileDialog.Options()
@@ -126,7 +232,6 @@ class MeasurementPage(QWidget):
         self.voltage_data.append([y])
 
     def start_measurement(self):
-        # Get selected device from parent MainWindow
         main_window = self.window()
         if hasattr(main_window, 'get_selected_device'):
             selected_resource = main_window.get_selected_device()
@@ -149,7 +254,17 @@ class MeasurementPage(QWidget):
         current_start = float(self.current_start_input.text())
         current_step = float(self.current_step_input.text())
 
-        self.worker = MeasurementWorker(selected_resource, activation_time, voltage_limit, interval_time, current_start, current_step)
+        current_list_str = self.current_list_input.text().strip()
+        current_list = None
+        if current_list_str:
+            try:
+                current_list_str = current_list_str.replace('\n', ' ').replace(',', ' ')
+                current_list = [float(s) for s in current_list_str.split() if s.strip()]
+            except Exception as e:
+                QMessageBox.warning(self, "Invalid Current List", f"Could not parse current list: {str(e)}")
+                return
+
+        self.worker = MeasurementWorker(selected_resource, activation_time, voltage_limit, interval_time, current_start, current_step, current_list)
         self.worker.request_user_input.connect(self.prompt_user_to_continue)
         self.worker.log_signal.connect(self.append_log)
         self.worker.plot_signal.connect(self.update_plot)

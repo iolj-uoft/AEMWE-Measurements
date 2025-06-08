@@ -11,7 +11,7 @@ class MeasurementWorker(QThread):
     finished_signal = pyqtSignal()
     request_user_input = pyqtSignal()
 
-    def __init__(self, resource_name, activation_time, voltage_limit, interval_time, current_start=0.0, current_step=0.25):
+    def __init__(self, resource_name, activation_time, voltage_limit, interval_time, current_start=0.0, current_step=0.25, current_list=None):
         super().__init__()
         self.resource_name = resource_name
         self.activation_time = activation_time
@@ -19,6 +19,7 @@ class MeasurementWorker(QThread):
         self.interval_time = interval_time
         self.current_start = current_start
         self.current_step = current_step
+        self.current_list = current_list
         self.running = True
         self._wait_for_user = False
 
@@ -30,9 +31,6 @@ class MeasurementWorker(QThread):
         try:
             rm = pyvisa.ResourceManager()
             pwr = rm.open_resource(self.resource_name)
-
-            # Increase current until voltage limit is hit
-            current = self.current_start
 
             self.log_signal.emit("Starting activation...")
             pwr.write('output on')
@@ -50,25 +48,40 @@ class MeasurementWorker(QThread):
             self.log_signal.emit(f'[{date.today()} {time.strftime("%H:%M:%S")}] {self.current_start:6.2f}A {voltage_0:7.3f}V')
             self.plot_signal.emit(self.current_start, voltage_0)
 
-
-
             voltage_data = [voltage_0]
             current_data = [self.current_start]
 
-            while self.running:
-                measured_voltage = float(pwr.query('MEASure:VOLTage?'))
-                if measured_voltage >= self.voltage_limit:
-                    self.log_signal.emit("Voltage limit exceeded. Shutting down.")
-                    break
-
-                current += self.current_step
-                pwr.write(f'CURR {current}')
-                time.sleep(self.interval_time)
-                measured_voltage = float(pwr.query('MEASure:VOLTage?'))
-                voltage_data.append(measured_voltage)
-                current_data.append(current)
-                self.log_signal.emit(f'[{date.today()} {time.strftime("%H:%M:%S")}] {current:6.2f}A {measured_voltage:7.3f}V')
-                self.plot_signal.emit(current, measured_voltage)
+            # Use custom current list if provided
+            if self.current_list is not None and len(self.current_list) > 0:
+                for curr in self.current_list:
+                    if not self.running:
+                        self.log_signal.emit("Measurement stopped by user.")
+                        break
+                    pwr.write(f'CURR {curr}')
+                    time.sleep(self.interval_time)
+                    measured_voltage = float(pwr.query('MEASure:VOLTage?'))
+                    voltage_data.append(measured_voltage)
+                    current_data.append(curr)
+                    self.log_signal.emit(f'[{date.today()} {time.strftime("%H:%M:%S")}] {curr:6.2f}A {measured_voltage:7.3f}V')
+                    self.plot_signal.emit(curr, measured_voltage)
+                    if measured_voltage >= self.voltage_limit:
+                        self.log_signal.emit("Voltage limit exceeded. Shutting down.")
+                        break
+            else:
+                current = self.current_start
+                while self.running:
+                    measured_voltage = float(pwr.query('MEASure:VOLTage?'))
+                    if measured_voltage >= self.voltage_limit:
+                        self.log_signal.emit("Voltage limit exceeded. Shutting down.")
+                        break
+                    current += self.current_step
+                    pwr.write(f'CURR {current}')
+                    time.sleep(self.interval_time)
+                    measured_voltage = float(pwr.query('MEASure:VOLTage?'))
+                    voltage_data.append(measured_voltage)
+                    current_data.append(current)
+                    self.log_signal.emit(f'[{date.today()} {time.strftime("%H:%M:%S")}] {current:6.2f}A {measured_voltage:7.3f}V')
+                    self.plot_signal.emit(current, measured_voltage)
 
             df = pd.DataFrame({'Current (A)': current_data, 'Voltage (V)': voltage_data})
             output_path = os.path.abspath("output.xlsx")
